@@ -114,10 +114,14 @@ jobs:
       - name: Build
         run: |
           echo "Building the project..."
+          # steps.pages.outputs.base_url resolves to the default github.io
+          # project pages URL; we use a custom domain instead, so it's
+          # hardcoded below.
+          # --baseURL "${{ steps.pages.outputs.base_url }}/"
           hugo build \
             --gc \
             --minify \
-            --baseURL "${{ steps.pages.outputs.base_url }}/" \
+            --baseURL "https://agentgossipprotocol.org/" \
             --cacheDir "${{ runner.temp }}/hugo_cache"
 
       - name: Cache save
