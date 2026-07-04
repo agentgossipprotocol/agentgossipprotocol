@@ -1,0 +1,11 @@
+baseURL: /
+title: Agent Gossip Protocol
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+
+module:
+  imports:
+    - path: github.com/imfing/hextra
