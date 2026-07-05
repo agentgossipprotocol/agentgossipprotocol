@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentgossipprotocol.org/schemas/v1/error.schema.json",
+  "title": "AGP Error",
+  "description": "Standardized error object reported between peers. TODO: finalize codes.",
+  "type": "object",
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "description": "Machine-readable error code. TODO: enumerate allowed values.",
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "description": "Human-readable error description.",
+      "type": "string"
+    },
+    "ref": {
+      "description": "Optional id of the message that triggered the error.",
+      "type": "string"
+    },
+    "details": {
+      "description": "Optional structured details. TODO: constrain."
+    }
+  },
+  "additionalProperties": false
+}

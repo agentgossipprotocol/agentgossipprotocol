@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentgossipprotocol.org/schemas/v1/state.schema.json",
+  "title": "AGP Context State",
+  "description": "An agent's accumulated planning context: capability announcements and subjective observations of action paths. Exchanged during anti-entropy reconciliation. Rank is computed locally and has NO wire representation.",
+  "type": "object",
+  "required": ["agent", "version"],
+  "properties": {
+    "agent": {
+      "description": "Identifier of the agent whose context state this is.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "Monotonic state version / logical clock for this agent.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "capabilities": {
+      "description": "Capability announcements known to this agent.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "observations": {
+      "description": "Observations known to this agent. Provenance (observer, observedAt) MUST be preserved; observations from different observers MUST NOT be merged.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/observation" }
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "Deferred: a 'presence' collection for user-presence context will be added by a future SEP once privacy requirements (spec/security.md section 8) are resolved.",
+  "$defs": {
+    "actionPath": {
+      "title": "Action Path",
+      "description": "A means of accomplishing a task: an external agent application, an inherent skill, or an MCP server.",
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["agent", "skill", "mcp"]
+        },
+        "id": {
+          "description": "Stable identifier for this path. MUST be stable across restarts so observations accumulate meaningfully. TODO: define format.",
+          "type": "string",
+          "minLength": 1
+        },
+        "address": {
+          "description": "Endpoint/address for 'agent' and 'mcp' kinds. TODO: define representation.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "title": "Capability Announcement",
+      "description": "A declared function offered by an action path. Agents MUST only announce paths they control.",
+      "type": "object",
+      "required": ["id", "path", "name", "announcedBy", "announcedAt"],
+      "properties": {
+        "id": {
+          "description": "Unique identifier of this capability announcement (referenced by 'withdraw').",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": { "$ref": "#/$defs/actionPath" },
+        "name": {
+          "description": "Human/agent-readable capability name, e.g. 'summarize-documents'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "announcedBy": {
+          "description": "Identifier of the announcing agent.",
+          "type": "string",
+          "minLength": 1
+        },
+        "announcedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ttlSeconds": {
+          "description": "Time-to-live from announcedAt. Receivers MUST discard expired announcements. TODO: define default.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "observation": {
+      "title": "Observation",
+      "description": "A timestamped, SUBJECTIVE report by one agent about one action path. Receivers MUST treat this as a claim by its observer, not fact.",
+      "type": "object",
+      "required": ["observer", "path", "status", "observedAt"],
+      "properties": {
+        "observer": {
+          "description": "Identifier of the observing agent. MUST be preserved when the observation is forwarded.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": { "$ref": "#/$defs/actionPath" },
+        "status": {
+          "type": "string",
+          "enum": ["available", "degraded", "unavailable"]
+        },
+        "observedAt": {
+          "description": "Time of observation (RFC 3339). MUST be preserved when forwarded.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "metrics": {
+          "description": "Optional quantitative measurements backing the status.",
+          "type": "object",
+          "properties": {
+            "latencyMs": { "type": "number", "minimum": 0 },
+            "successRate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "sampleSize": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "ttlSeconds": {
+          "description": "Time-to-live from observedAt. Receivers MUST discard expired observations. TODO: define default.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

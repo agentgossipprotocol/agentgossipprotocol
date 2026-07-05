@@ -6,9 +6,58 @@ markup:
     renderer:
       unsafe: true
 
+# Top navigation bar. Hextra builds the navbar from menu.main.
+menu:
+  main:
+    - name: Documentation
+      pageRef: /docs
+      weight: 1
+    - name: Specification
+      pageRef: /spec
+      weight: 2
+    - name: Proposals
+      pageRef: /proposals
+      weight: 3
+    - name: Search
+      weight: 4
+      params:
+        type: search
+    - name: GitHub
+      weight: 5
+      url: "https://github.com/agentgossipprotocol/agentgossipprotocol"
+      params:
+        icon: github
+
 module:
   imports:
     - path: github.com/imfing/hextra
+  # Explicit mounts: defining any mount disables Hugo's defaults, so the
+  # standard component directories are re-declared here alongside the
+  # source-of-truth spec/ and schemas/ directories.
+  mounts:
+    - source: content
+      target: content
+    - source: spec
+      target: content/spec
+      files:
+        - "*.md"
+    - source: spec/proposals
+      target: content/proposals
+    # Served verbatim at https://agentgossipprotocol.org/schemas/...
+    - source: schemas
+      target: static/schemas
+    - source: static
+      target: static
+    - source: assets
+      target: assets
+    - source: layouts
+      target: layouts
+    - source: data
+      target: data
+    - source: i18n
+      target: i18n
+    - source: archetypes
+      target: archetypes
 
 caches:
   images:
