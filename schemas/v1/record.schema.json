@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentgossipprotocol.org/schemas/v1/record.schema.json",
+  "title": "AGP Gossip Record",
+  "description": "An immutable, origin-signed unit of gossip evidence. A record is never authoritative: it is one attributed, expiring observation. See spec/core.md section 3.",
+  "type": "object",
+  "required": [
+    "recordId",
+    "issuer",
+    "issuerEpoch",
+    "sequence",
+    "subject",
+    "kind",
+    "scope",
+    "value",
+    "evidence",
+    "observedAt",
+    "expiresAt",
+    "signature"
+  ],
+  "properties": {
+    "recordId": {
+      "description": "Content address: SHA-256 hash of the JSON Canonicalization Scheme (RFC 8785) form of this record without 'signature'.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "issuer": {
+      "description": "Identifier of the agent that observed and signed this record. May differ from 'subject'; see spec/core.md section 3.2.",
+      "type": "string",
+      "minLength": 1
+    },
+    "issuerEpoch": {
+      "description": "Opaque token that changes whenever the issuer's sequence counter resets (e.g. on restart), disambiguating 'sequence' across issuer lifetimes.",
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "description": "Monotonically increasing counter scoped to (issuer, issuerEpoch). Used for replay/out-of-order rejection; see spec/security.md section 7.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "kind": {
+      "description": "Versioned record type governing the shape of 'value'. v1 defines exactly these four kinds; see spec/core.md section 4.",
+      "type": "string",
+      "enum": [
+        "agent.lifecycle.v1",
+        "route.sli.v1",
+        "capability.evaluation.v1",
+        "peer.referral.v1"
+      ]
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "observationWindow": {
+      "$ref": "#/$defs/observationWindow"
+    },
+    "value": {
+      "description": "Kind-specific evidence payload; see the 'allOf' constraints below."
+    },
+    "evidence": {
+      "$ref": "#/$defs/evidence"
+    },
+    "observedAt": {
+      "description": "When the issuer made the observation (RFC 3339).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "description": "When this record MUST be treated as stale and discarded.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "supersedes": {
+      "description": "recordId of a prior record this one corrects or retracts. Records are never mutated in place; see spec/core.md section 3.4.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "agent.lifecycle.v1" } } },
+      "then": {
+        "properties": { "value": { "$ref": "#/$defs/agentLifecycleValue" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "route.sli.v1" } } },
+      "then": {
+        "required": ["observationWindow"],
+        "properties": { "value": { "$ref": "#/$defs/routeSliValue" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "capability.evaluation.v1" } } },
+      "then": {
+        "properties": { "value": { "$ref": "#/$defs/capabilityEvaluationValue" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "peer.referral.v1" } } },
+      "then": {
+        "properties": { "value": { "$ref": "#/$defs/peerReferralValue" } }
+      }
+    }
+  ],
+  "$defs": {
+    "subject": {
+      "title": "Subject",
+      "description": "The action path, capability, or agent this record is about.",
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["agent", "agent-capability", "skill", "mcp-server"]
+        },
+        "id": {
+          "description": "Stable identifier, e.g. 'agent://bank-a/reconciler#invoice.reconcile/v2'.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "title": "Scope",
+      "description": "Tenant/domain/partition context used for authorization and reconciliation; see spec/security.md section 3.",
+      "type": "object",
+      "required": ["tenant"],
+      "properties": {
+        "tenant": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string" },
+        "partition": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "observationWindow": {
+      "title": "Observation Window",
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "title": "Evidence",
+      "description": "How the observation was made. MUST NOT be replaced by a bare confidence score; see spec/core.md section 3.3.",
+      "type": "object",
+      "required": ["method"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "direct-runtime-observation",
+            "self-report",
+            "authorized-evaluation",
+            "referral"
+          ]
+        },
+        "sampleCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "signature": {
+      "title": "Signature",
+      "description": "Issuer signature over the canonical (JCS) unsigned record. Authenticates this record only; it is unrelated to A2A Agent Card signing.",
+      "type": "object",
+      "required": ["kid", "alg", "value"],
+      "properties": {
+        "kid": { "type": "string", "minLength": 1 },
+        "alg": { "type": "string", "enum": ["ES256", "EdDSA"] },
+        "value": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "normalizedErrorClass": {
+      "title": "Normalized Error Class",
+      "description": "A closed set of error classes. Raw exception strings or stack traces MUST NOT appear here; see spec/security.md section 9.",
+      "type": "string",
+      "enum": [
+        "timeout",
+        "unauthorized",
+        "not_found",
+        "invalid_request",
+        "unavailable",
+        "rate_limited",
+        "internal",
+        "unknown"
+      ]
+    },
+    "agentLifecycleValue": {
+      "title": "agent.lifecycle.v1 value",
+      "description": "Self-reported runtime state. issuer MUST equal subject for this kind.",
+      "type": "object",
+      "required": ["status", "deploymentEpoch"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["ready", "draining", "degraded", "unavailable"]
+        },
+        "deploymentEpoch": { "type": "string", "minLength": 1 },
+        "expectedRecoveryAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "routeSliValue": {
+      "title": "route.sli.v1 value",
+      "description": "Direct measurements made while issuer invoked the subject capability.",
+      "type": "object",
+      "required": ["attempts", "successes"],
+      "properties": {
+        "attempts": { "type": "integer", "minimum": 0 },
+        "successes": { "type": "integer", "minimum": 0 },
+        "p50Ms": { "type": "number", "minimum": 0 },
+        "p95Ms": { "type": "number", "minimum": 0 },
+        "errorClasses": {
+          "type": "object",
+          "description": "Map of normalizedErrorClass to occurrence count.",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "propertyNames": {
+            "enum": [
+              "timeout",
+              "unauthorized",
+              "not_found",
+              "invalid_request",
+              "unavailable",
+              "rate_limited",
+              "internal",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityEvaluationValue": {
+      "title": "capability.evaluation.v1 value",
+      "description": "An evaluation result issued by an authorized evaluator. Scores across different suites/versions/dataset classes are not comparable; see spec/core.md section 4.3.",
+      "type": "object",
+      "required": [
+        "evaluator",
+        "suiteId",
+        "suiteVersion",
+        "datasetClass",
+        "score",
+        "sampleSize",
+        "evaluatedAt"
+      ],
+      "properties": {
+        "evaluator": {
+          "description": "Identifier of the authorized evaluator agent.",
+          "type": "string",
+          "minLength": 1
+        },
+        "suiteId": { "type": "string", "minLength": 1 },
+        "suiteVersion": { "type": "string", "minLength": 1 },
+        "datasetClass": { "type": "string", "minLength": 1 },
+        "score": { "type": "number" },
+        "sampleSize": { "type": "integer", "minimum": 1 },
+        "evaluatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "peerReferralValue": {
+      "title": "peer.referral.v1 value",
+      "description": "A hint that another A2A endpoint or capability may exist. MUST NOT be trusted until the receiver fetches and validates the referenced Agent Card; see spec/core.md section 4.4 and spec/discovery.md section 3.",
+      "type": "object",
+      "required": ["targetUri"],
+      "properties": {
+        "targetUri": {
+          "description": "URI of the referenced agent or Agent Card.",
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "description": "Closed set of referral reasons. MUST NOT be used to carry a free-form reputation assertion (e.g. 'Agent X is good'); see spec/core.md section 3.6.",
+          "type": "string",
+          "enum": ["capability-overlap", "explicit-recommendation", "topology-hint"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

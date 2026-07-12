@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentgossipprotocol.org/schemas/v1/frame.schema.json",
+  "title": "AGP GossipFrame",
+  "description": "A frame exchanged during the Sync anti-entropy operation. A single frame may combine any subset of these elements. See spec/transport.md section 1.",
+  "type": "object",
+  "required": ["sessionId"],
+  "properties": {
+    "sessionId": {
+      "description": "Client-generated session identifier, echoed by both sides for the life of the session.",
+      "type": "string",
+      "minLength": 1
+    },
+    "hello": {
+      "$ref": "#/$defs/hello"
+    },
+    "scopes": {
+      "description": "This side's interest selectors for the session.",
+      "type": "array",
+      "items": { "$ref": "https://agentgossipprotocol.org/schemas/v1/selector.schema.json" }
+    },
+    "summaries": {
+      "description": "Partition digests for anti-entropy comparison; see spec/transport.md section 4.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/partitionSummary" }
+    },
+    "wants": {
+      "description": "Record IDs or partition ranges requested from the peer.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/want" }
+    },
+    "records": {
+      "description": "Signed records being transferred, each wrapped in its per-hop transfer envelope. The record itself never carries hop metadata; see spec/transport.md section 2.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/transferEnvelope" }
+    },
+    "acks": {
+      "description": "Acknowledgement of records accepted or rejected, by recordId.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/ack" }
+    },
+    "continuationToken": {
+      "description": "Opaque token to resume a bounded session that hit a limit; null when nothing remains.",
+      "type": ["string", "null"]
+    },
+    "done": {
+      "description": "True when this side has nothing further for the session.",
+      "type": "boolean",
+      "default": false
+    },
+    "error": {
+      "$ref": "https://agentgossipprotocol.org/schemas/v1/error.schema.json"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hello": {
+      "title": "Hello",
+      "description": "Version, limits, and digest-algorithm negotiation.",
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": { "type": "integer", "const": 1 },
+        "digestAlgorithms": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "maxFrameBytes": { "type": "integer", "minimum": 1 },
+            "maxRecords": { "type": "integer", "minimum": 1 },
+            "maxPartitions": { "type": "integer", "minimum": 1 },
+            "maxProcessingMs": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "partitionSummary": {
+      "title": "Partition Summary",
+      "type": "object",
+      "required": ["partition", "rootHash", "generation", "recordCount"],
+      "properties": {
+        "partition": {
+          "description": "Stable partition key: tenant/domain/record-kind/subject-namespace.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rootHash": { "type": "string", "minLength": 1 },
+        "generation": { "type": "integer", "minimum": 0 },
+        "recordCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "want": {
+      "title": "Want",
+      "description": "A request for a specific record, or for a range within a partition.",
+      "type": "object",
+      "oneOf": [
+        { "required": ["recordId"] },
+        { "required": ["partition"] }
+      ],
+      "properties": {
+        "recordId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "partition": { "type": "string", "minLength": 1 },
+        "afterGeneration": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "transferEnvelope": {
+      "title": "Transfer Envelope",
+      "description": "Wraps a record with per-hop relay metadata. The hop budget, if present, is an optional optimization hint, not a correctness mechanism; see spec/core.md section 5.",
+      "type": "object",
+      "required": ["record"],
+      "properties": {
+        "record": { "$ref": "https://agentgossipprotocol.org/schemas/v1/record.schema.json" },
+        "hopCount": { "type": "integer", "minimum": 0 },
+        "hopBudget": { "type": "integer", "minimum": 0 },
+        "relayedBy": {
+          "description": "Identifier of the immediately preceding relay, if this record was not received directly from its issuer.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ack": {
+      "title": "Ack",
+      "type": "object",
+      "required": ["recordId", "status"],
+      "properties": {
+        "recordId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "status": { "type": "string", "enum": ["accepted", "rejected"] },
+        "reason": {
+          "$ref": "https://agentgossipprotocol.org/schemas/v1/error.schema.json#/$defs/code"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

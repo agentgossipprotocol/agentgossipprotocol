@@ -2,26 +2,45 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentgossipprotocol.org/schemas/v1/error.schema.json",
   "title": "AGP Error",
-  "description": "Standardized error object reported between peers. TODO: finalize codes.",
+  "description": "Normalized protocol-level error reported between peers during a Sync session (e.g. in an ERROR frame or as an ack rejection reason). This is distinct from the normalizedErrorClass used inside route.sli.v1 evidence; see spec/transport.md section 3.",
   "type": "object",
   "required": ["code", "message"],
   "properties": {
     "code": {
-      "description": "Machine-readable error code. TODO: enumerate allowed values.",
+      "$ref": "#/$defs/code"
+    },
+    "message": {
+      "description": "Human-readable protocol diagnostic. MUST NOT contain gossiped record content, business data, or raw exception text/stack traces; see spec/security.md section 9.",
       "type": "string",
       "minLength": 1
     },
-    "message": {
-      "description": "Human-readable error description.",
+    "sessionId": {
+      "description": "The Sync session this error pertains to, if any.",
       "type": "string"
     },
-    "ref": {
-      "description": "Optional id of the message that triggered the error.",
-      "type": "string"
-    },
-    "details": {
-      "description": "Optional structured details. TODO: constrain."
+    "retryable": {
+      "description": "Whether the sender MAY retry the operation that triggered this error.",
+      "type": "boolean"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "code": {
+      "title": "Error Code",
+      "type": "string",
+      "enum": [
+        "unsupported_version",
+        "unauthorized",
+        "forbidden_scope",
+        "invalid_frame",
+        "unknown_record_kind",
+        "invalid_signature",
+        "stale_record",
+        "replayed_record",
+        "quota_exceeded",
+        "session_expired",
+        "internal"
+      ]
+    }
+  }
 }

@@ -15,9 +15,11 @@ layout: hextra-home
 
 <div class="agp-hero-subtitle">
 {{< hextra/hero-subtitle >}}
-  A shared-context protocol for multi-agent systems. Agents gossip capability,
-  availability, and health signals so each participant can plan against fresh,
-  decentralized knowledge.
+  A transport-independent protocol for multi-agent systems, with a preferred
+  A2A binding. Agents gossip expiring, attributed operational evidence —
+  lifecycle, route quality, evaluation scores, referrals — so each
+  participant can choose better among paths it has already discovered and is
+  already authorized to use.
 {{< /hextra/hero-subtitle >}}
 </div>
 
@@ -37,27 +39,28 @@ layout: hextra-home
   <a class="agp-card" href="spec/core/">
     <h2>Protocol core</h2>
     <p>
-      Normative message rules, context state, freshness, and conformance language.
+      The gossip record model, the four v1 record kinds, exclusions, and conformance rules.
     </p>
   </a>
-  <a class="agp-card" href="spec/discovery/">
-    <h2>Discovery</h2>
+  <a class="agp-card" href="spec/transport/">
+    <h2>Sync operation</h2>
     <p>
-      How peers find one another, verify identities, and decide what context to exchange.
+      The single resumable anti-entropy operation that exchanges records, and its A2A binding.
     </p>
   </a>
-  <a class="agp-card" href="schemas/v1/message.schema.json">
+  <a class="agp-card" href="schemas/v1/record.schema.json">
     <h2>JSON Schemas</h2>
     <p>
-      Versioned payload definitions for messages, state snapshots, and protocol errors.
+      Versioned payload definitions for records, gossip frames, selectors, and protocol errors.
     </p>
   </a>
 </div>
 
 <div class="agp-note">
   <p>
-    AGP carries planning context, not tasks. It complements execution protocols
-    such as MCP and A2A by helping agents understand which action paths exist,
-    which are degraded, and which alternatives have appeared.
+    AGP carries evidence, not tasks. It never discovers what exists, never grants
+    access, and never overrides configuration — it only helps an agent choose
+    among action paths it has already discovered and is already authorized to
+    use, based on fresh, attributed, expiring observations.
   </p>
 </div>

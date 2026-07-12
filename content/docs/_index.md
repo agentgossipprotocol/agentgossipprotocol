@@ -6,9 +6,12 @@ cascade:
 
 # Documentation
 
-Agent Gossip Protocol (AGP) is a context layer for multi-agent environments.
-It lets agents exchange fresh, attributed observations about available action
-paths so each participant can make better local planning decisions.
+Agent Gossip Protocol (AGP) is a transport-independent protocol for
+multi-agent environments, with a preferred A2A binding. It lets agents
+exchange fresh, attributed, expiring operational evidence — never tasks,
+prompts, or business data — so each participant can choose more effectively
+among action paths it has already discovered and is already authorized to
+use.
 
 ## Start Here
 
@@ -16,7 +19,7 @@ paths so each participant can make better local planning decisions.
   read next.
 - [Specification](../spec/) contains the normative protocol documents.
 - [Proposals](../proposals/) describe how changes are proposed and ratified.
-- [Schemas](../schemas/v1/message.schema.json) provide machine-readable
+- [Schemas](../schemas/v1/record.schema.json) provide machine-readable
   payload definitions.
 
 ## Current Status

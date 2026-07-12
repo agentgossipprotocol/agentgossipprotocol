@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentgossipprotocol.org/schemas/v1/selector.schema.json",
+  "title": "AGP Interest Selector",
+  "description": "A description of the records a peer is willing to disclose, or wants to receive, during a Sync session. See spec/security.md section 3.",
+  "type": "object",
+  "required": ["selectorId", "subjectNamespaces"],
+  "properties": {
+    "selectorId": {
+      "description": "Stable identifier for this selector, exchangeable between peers instead of the full namespace/capability list; see spec/security.md section 3.",
+      "type": "string",
+      "minLength": 1
+    },
+    "subjectNamespaces": {
+      "description": "Glob-style subject-id namespaces this selector covers, e.g. 'agent://bank-a/reconciliation/*'.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "capabilities": {
+      "description": "Capability identifiers this selector covers.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recordKinds": {
+      "description": "v1 record kinds this selector covers. Omit to cover all supported kinds.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "agent.lifecycle.v1",
+          "route.sli.v1",
+          "capability.evaluation.v1",
+          "peer.referral.v1"
+        ]
+      }
+    },
+    "tenant": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

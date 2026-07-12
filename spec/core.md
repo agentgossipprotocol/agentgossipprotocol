@@ -8,8 +8,9 @@ weight: 1
 **Status:** Draft
 
 This document defines the core, normative rules of the Agent Gossip Protocol
-(AGP). It is implementation-agnostic: it describes the messages exchanged on
-the wire and the behavior peers MUST exhibit, never how a given peer is built.
+(AGP). It is implementation-agnostic: it describes the records and behavior
+peers MUST exhibit, never how a given peer is built. The wire operation that
+exchanges these records is defined in [Transport](/spec/transport/).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
 "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be interpreted as
@@ -18,139 +19,220 @@ described in RFC 2119 and RFC 8174.
 ## 1. Overview
 
 In a multi-agent environment, an agent determines a course of action for its
-tasks by choosing among **action paths**: external agent applications, its own
-inherent skills, or MCP servers. That choice is only as good as the agent's
-knowledge of its environment — which paths exist, which are degraded, and
-which alternatives have appeared.
+tasks by choosing among **action paths**: external agent applications, its
+own inherent skills, or MCP servers. Which paths *officially exist*, and
+which the agent is *authorized* to use, is decided entirely outside AGP — by
+the host protocol's authoritative discovery (Agent Cards and A2A discovery
+under the [A2A Binding](/spec/binding-a2a/)) and by authorization policy. AGP's
+only job is to keep the agent's picture of the *already-discovered,
+already-authorized* subset fresh: which paths are currently healthy, which
+are degraded, and what has recently been measured about them.
 
-AGP keeps that knowledge fresh. Agents gossip two kinds of context:
-
-1. **Capability announcements** — "action path *P* offers capability *C*".
-2. **Observations** — "at time *T*, I observed path *P* to be available /
-   degraded / unavailable, with these measurements".
-
-Receivers accumulate this context and use it to plan. AGP itself never carries
-a task, a delegation, or an instruction: it is a context layer that
-*complements* execution protocols such as MCP and A2A rather than competing
-with them.
+AGP propagates **gossip records** — immutable, signed, expiring statements
+of evidence. A record is never authoritative and never self-sufficient: it
+is one attributed observation, valid for a bounded window, that a receiver
+weighs alongside everything else it knows.
 
 ## 2. Terminology
 
-- **Agent** — an autonomous participant that both consumes gossiped context
-  for planning and produces context for others.
-- **Peer** — an agent to which another agent maintains a direct gossip
-  connection.
+- **Agent** — an autonomous participant that both consumes gossip records
+  for planning and produces records for others.
+- **Peer** — an agent with which another agent runs a `Sync` session
+  ([Transport §1](/spec/transport/)).
 - **Action Path** — a means by which an agent can accomplish (part of) a
   task. An action path is one of: an **external agent application**, an
   **inherent skill** of the agent itself, or an **MCP server**.
-- **Capability** — a declared function that an action path offers (e.g.,
-  "summarize documents", "query inventory").
-- **Observation** — a timestamped, *subjective* report by one agent about one
-  action path: its availability, degradation, and measured quality.
+- **Issuer** — the agent that authored and signed a record. The issuer is
+  not necessarily the record's subject; an issuer routinely reports on
+  paths it invoked, not just paths it hosts.
+- **Subject** — the action path, capability, or agent that a record is
+  *about*.
+- **Record** — an immutable, signed, timestamped, expiring unit of gossip
+  evidence conforming to `record.schema.json` (§3).
+- **Record Kind** — the typed shape of a record's `value` (§4). Kinds are
+  versioned independently (e.g. `route.sli.v1`).
+- **Selector** — a receiver-defined description of the records it is
+  interested in and/or willing to disclose ([Security §3](/spec/security/)).
+- **Partition** — a stable subdivision of the record space (by tenant,
+  domain, record kind, and subject namespace) used to make anti-entropy
+  reconciliation tractable ([Transport §4](/spec/transport/)).
 - **Rank** — a preference ordering over action paths for a given task. Rank
-  is **computed locally** by each agent from the observations it holds. Rank
-  is NOT gossiped and has no wire representation.
-- **Message** — a unit of gossip conforming to `message.schema.json`.
-- **Context State** — an agent's accumulated view of capabilities and
-  observations, conforming to `state.schema.json`.
+  is **computed locally** by each agent from the records it holds, alongside
+  authoritative capability and authorization data. Rank is NOT gossiped and
+  has no wire representation.
 
-## 3. Context Model
+## 3. Record Model
 
-### 3.1 Action Paths
+### 3.1 Structure
 
-An action path is identified by its `kind` (`agent`, `skill`, or `mcp`) and a
-stable identifier. Identifiers MUST be stable across restarts of the path so
-that observations accumulate meaningfully.
+Every record MUST validate against `record.schema.json` (version 1) and
+MUST contain, at minimum:
 
-> **TODO:** Define the identifier format and (for `agent`/`mcp` kinds) the
-> address/endpoint representation.
+| Field | Meaning |
+| --- | --- |
+| `recordId` | Content address: the SHA-256 hash of the canonical (JSON Canonicalization Scheme) unsigned record. |
+| `issuer` | The agent that observed and signed the record. |
+| `issuerEpoch` | An opaque token that changes whenever the issuer's sequence counter resets (e.g. on restart), so `sequence` is unambiguous across issuer lifetimes. |
+| `sequence` | A monotonically increasing counter scoped to `(issuer, issuerEpoch)`. |
+| `subject` | The action path, capability, or agent the record is about. May differ from `issuer` (§3.2). |
+| `kind` | The versioned record type governing the shape of `value` (§4). |
+| `scope` | Tenant/domain/partition context used for authorization and reconciliation. |
+| `observationWindow` | The time range over which the evidence in `value` was collected, where applicable. |
+| `value` | The kind-specific evidence payload (§4). |
+| `evidence` | How the observation was made (e.g. `method`, `sampleCount`) — never a bare confidence score (§3.3). |
+| `observedAt` | When the issuer made the observation. |
+| `expiresAt` | When the record MUST be treated as stale and discarded (§3.5). |
+| `supersedes` | OPTIONAL. The `recordId` of a prior record this one corrects or retracts (§3.4). |
+| `signature` | The issuer's signature over the canonical unsigned record. |
 
-### 3.2 Capability Announcements
+### 3.2 Issuer and Subject Are Distinct
 
-An agent MAY announce capabilities for action paths it controls or hosts.
-An announcement binds a capability to an action path.
+A record's `issuer` is whoever made and signed the observation; its
+`subject` is whoever or whatever the observation is about. They are
+frequently different agents — e.g. agent A issues a `route.sli.v1` record
+whose subject is agent B's capability, based on A's own measurements of
+calling B.
 
-- An agent MUST NOT announce capabilities for action paths it does not
-  control. (Reporting on *other* agents' paths is done through observations,
-  never announcements.)
-- Announcements MUST be attributed to the announcing agent.
-- An agent SHOULD withdraw (via a `withdraw` message) capabilities that are
-  no longer offered.
+- A record MUST identify `issuer` and `subject` as separate fields.
+- A receiver MUST NOT collapse or merge records from different issuers about
+  the same subject into a single record. Provenance per issuer is preserved;
+  weighting across issuers is a local, implementation-defined policy.
 
-### 3.3 Observations
+### 3.3 Evidence, Not Confidence
 
-Observations are the mechanism by which "degraded or low-ranked path"
-knowledge spreads. They are deliberately **subjective**:
+Records MUST NOT carry a bare, unitless confidence score (e.g.
+`confidence: 0.82`). Instead, `evidence` MUST describe how the observation
+was made — at minimum an observation `method` (e.g.
+`direct-runtime-observation`) and, where applicable, a `sampleCount` and the
+`observationWindow`. Receivers derive their own trust weighting from this
+concrete evidence; the protocol does not define one.
 
-- An observation MUST identify the observing agent (`observer`), the observed
-  action path, a `status` of `available`, `degraded`, or `unavailable`, and
-  the time of observation (`observedAt`).
-- An observation MAY carry quantitative metrics (e.g., latency, success
-  rate).
-- A receiver MUST treat every observation as a *claim by its observer*, not
-  as fact. Receivers MUST NOT merge observations from different observers
-  into a single record; provenance is preserved.
-- Receivers compute ranking locally from the observations they hold. How a
-  receiver weighs observers, recency, and metrics is implementation-defined.
+### 3.4 Immutability, Corrections, and Retractions
 
-### 3.4 Freshness
+Records are immutable once signed. A correction or retraction MUST be a new,
+independently signed record whose `supersedes` field references the
+`recordId` of the record it replaces. Implementations MUST NOT mutate a
+stored record in place.
 
-Stale context is worse than no context.
+### 3.5 Freshness and Expiry
 
-- Every capability announcement and observation MUST carry a timestamp.
-- Producers SHOULD attach a TTL; receivers MUST discard context whose TTL has
-  expired.
+Stale evidence is worse than no evidence.
 
-> **TODO:** Define default TTLs and the maximum permitted clock skew.
+- Every record MUST carry `observedAt` and `expiresAt`.
+- A receiver MUST discard (or mark stale and stop surfacing) a record once
+  `expiresAt` has passed.
+- A receiver SHOULD reject records whose `observedAt` is further in the
+  future than the receiver's permitted clock skew, and MUST reject records
+  whose `(issuer, issuerEpoch, sequence)` it has already seen a higher
+  sequence for (replay protection; see [Security §7](/spec/security/)).
 
-### 3.5 User Presence (Deferred)
+> **TODO:** Define default TTL ranges per record kind and the maximum
+> permitted clock skew.
 
-> **Deferred:** A future SEP will specify gossiping *user presence* — an
-> agent's knowledge of where a user identity is active elsewhere in the
-> environment, as an input to planning. The `presence` message type is
-> reserved for this purpose (§4). It MUST NOT be used until specified; the
-> privacy requirements in [Security §7](security/) MUST be resolved first.
+### 3.6 What Is Never a Record
 
-## 4. Message Model
+The following MUST NOT be represented as a gossip record in v1: user
+activity or usage profiles; prompts or task histories; tool inputs or
+outputs; business records; raw exception strings or stack traces; chain of
+thought or other model-generated explanations; secrets or credentials;
+unverified claims about internal skills; or free-form reputation assertions
+about an agent ("Agent B is unreliable"). See also [Security §9](/spec/security/).
 
-Every message MUST validate against the base gossip payload schema
-(`message.schema.json`, version 1).
+If an agent acts on behalf of a user, user identity MUST be handled through
+on-behalf-of authorization and local policy evaluation, never propagated as
+gossip.
 
-| Type | Payload | Purpose |
-| --- | --- | --- |
-| `announce` | Capability | Declare a capability offered by an action path. |
-| `observe` | Observation | Report a subjective observation of an action path. |
-| `withdraw` | Capability reference | Retract a previous announcement. |
-| `presence` | *(reserved)* | Reserved for user presence. Deferred to a future SEP; MUST NOT be sent. |
+## 4. Record Kinds (v1)
 
-> **TODO:** Define the encoding rules and de-duplication window for message
-> `id`s.
+v1 defines exactly four record kinds. A conforming peer MAY support a
+strict subset; it MUST NOT invent unregistered kinds and expect peers to
+interpret them (unrecognized kinds MUST be treated per
+[Transport §3](/spec/transport/), not guessed at).
 
-## 5. Gossip Semantics
+### 4.1 `agent.lifecycle.v1`
 
-> **TODO:** Define fan-out, rounds, anti-entropy, and convergence
-> expectations. Specify what a conforming peer MUST, SHOULD, and MAY do on
-> receipt of each message type — including forwarding rules for observations
-> it did not author (forwarded observations MUST preserve the original
-> `observer` and `observedAt`).
+Self-reported runtime state of the issuer itself (`issuer == subject`):
+`ready`, `draining`, `degraded`, or `unavailable`; the issuer's current
+deployment epoch; and, where known, an expected recovery time. This is
+**advisory** and does not replace health checks — a receiver MUST NOT treat
+the absence of a lifecycle record as evidence of health.
 
-## 6. State Propagation
+### 4.2 `route.sli.v1`
 
-> **TODO:** Define how context state is reconciled between peers
-> (anti-entropy over `state.schema.json`), so that a newly joined agent can
-> acquire the current capability and observation set.
+Direct measurements made while the issuer invoked the subject capability:
+attempt count, success count, normalized error classes (never raw error
+text — see [Security §9](/spec/security/)), and a latency distribution, all
+bound to `observationWindow`.
 
-## 7. Error Handling
+### 4.3 `capability.evaluation.v1`
 
-Peers MUST report protocol errors using the standardized error object defined
-in `error.schema.json`.
+An evaluation result issued by an authorized evaluator, identifying: the
+capability under evaluation, the evaluator's identity, the evaluation suite
+ID and version, the dataset class, the score, the sample size, the
+evaluation timestamp, and expiry. Scores from different suites, suite
+versions, or dataset classes MUST NOT be treated as directly comparable by
+a receiver.
 
-> **TODO:** Enumerate error conditions and the required peer behavior for each.
+### 4.4 `peer.referral.v1`
 
-## 8. Conformance
+A hint that another endpoint or capability may exist. A referral is
+**never** sufficient on its own: a receiver MUST fetch and validate the
+referenced subject's authoritative descriptor through the host protocol's
+discovery — under the [A2A Binding](/spec/binding-a2a/), the referenced Agent
+Card — before treating the referral as anything more than a hint to check
+([Discovery §3](/spec/discovery/)). A referral MUST NOT be used to bypass that
+validation or authorization.
+
+## 5. Deduplication and Bounded Propagation
+
+Earlier drafts of this protocol proposed a path-based invariant: "gossip
+cannot come to a previously touched agent." That rule is **not** part of
+this specification. Enforcing it would require every record to carry its
+full traversal path (or a probabilistic path filter), which leaks topology,
+grows record size at every hop, and can incorrectly block legitimate
+reconciliation in a mesh with cycles.
+
+Instead, a conforming peer MUST use content-addressed deduplication:
+
+- `recordId` is a content address (§3.1); a peer that has already stored a
+  given `recordId` MUST treat re-receipt as a no-op — it MUST NOT reprocess
+  or duplicate-store the record, but receiving it again is not an error.
+- A peer MUST maintain a local seen-record cache (bounded by the freshness
+  rules in §3.5) sufficient to recognize duplicates.
+- A peer SHOULD maintain per-peer summaries of what it has already sent to
+  or acknowledged from each peer, to avoid re-offering records that peer
+  already has ([Transport §4](/spec/transport/)).
+- A transfer envelope MAY carry a hop budget as an optional, non-normative
+  optimization hint. Hop budgets bound wasted work; they are not a
+  correctness mechanism, and their absence or exhaustion MUST NOT be
+  interpreted as evidence about the record's validity.
+
+Cycles in the underlying peer topology are harmless: once two peers'
+partition digests converge (§ [Transport §4](/spec/transport/)), further sessions
+between them transfer nothing.
+
+## 6. Planner Consumption
+
+A planner or router MAY consume gossip records, but only as a read-only,
+advisory input alongside authoritative capability and authorization data.
+
+- Gossip MUST NOT be used as an authorization input. A record MUST NOT grant
+  access to an action path the receiver is not already authorized to use.
+- Gossip MUST NOT independently trigger a destructive or irreversible
+  action, and MUST NOT be used to permanently block a user or path — it may
+  only influence routing preference, retry policy, and exploration.
+- A planner MUST apply authoritative capability and authorization data
+  first, and only then apply fresh gossip evidence to prefer among the
+  remaining, permitted options. Evidence that is missing or stale MUST fall
+  back to authoritative defaults rather than blocking a decision.
+- A planner consuming multiple record kinds about the same subject MUST
+  keep them distinguishable by issuer, kind, and freshness rather than
+  collapsing them into a single unqualified statement.
+
+## 7. Conformance
 
 An implementation is **conformant** if and only if it satisfies every "MUST"
-and "REQUIRED" clause in this document and validates all payloads against the
-version 1 schemas.
+and "REQUIRED" clause in this document and in [Transport](/spec/transport/), and
+validates all payloads against the version 1 schemas.
 
 > **TODO:** Define conformance levels, if any (e.g., core vs. extended).

@@ -1,6 +1,11 @@
 baseURL: /
 title: Agent Gossip Protocol
 
+params:
+  navbar:
+    logo:
+      path: images/logo.png
+
 markup:
   goldmark:
     renderer:
